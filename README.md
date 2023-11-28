@@ -1,12 +1,26 @@
 # LDAP-to-SQLServer
 Scapes data from an LDAP and injects in into a SQLServer database
 
-## Main Pull
-This script looks for all attributes with a given Organizational Unit and creates a SQL table with the attributes as columns.
-It then adds all the given Organizational Unit entries as rows in the table.
-It saves all of this into a temp table and then renames it to the active table to minimize downtime.
+## main-pull.py
+This script performs several key functions:
 
-## Refresh Pull
-This script generates a hash of all columns for all rows and places this hash in a new column. 
-It then compares the hash of all attributes in the SQL Table to the given LDAP to see if changes have been made.
-It then updates the SQL Table on which entries have changes noted in the generated hash.
+    LDAP Connection: It connects to an LDAP server using the ldap3 library. The connection details (server, user, password) are hardcoded and should be replaced with actual LDAP server details.
+    SQL Server Connection: It connects to a SQL Server database using the pyodbc library. Similar to the LDAP connection, the details for the SQL Server are hardcoded.
+    Data Handling: The script pulls data from the LDAP server and processes it. It includes functions to:
+        Pull attributes from LDAP entries.
+        Determine the data types of these attributes.
+        Create a new table in the SQL Server database with these attributes.
+        Insert LDAP data into the SQL Server database.
+    Table Management: It handles SQL Server tables by creating new tables and renaming or dropping old ones as needed.
+
+## refresh-pull.py
+This script is designed to update the SQL Server database with the latest data from the LDAP server:
+
+    LDAP and SQL Server Connections: Similar to main-pull.py, it establishes connections to both LDAP and SQL Server.
+    Data Synchronization: The script checks for updates in the LDAP data and synchronizes these changes with the SQL Server database. It includes functions to:
+        Hash LDAP entries to detect changes.
+        Retrieve current data from SQL Server for comparison.
+        Update or insert new data into the SQL Server database.
+        Remove deleted entries from the SQL Server database.
+
+Both scripts are designed to automate the process of extracting data from an LDAP server and maintaining an up-to-date copy of this data in a SQL Server database. They are useful in scenarios where LDAP data needs to be regularly synchronized with a SQL database, such as for user management or directory services.
