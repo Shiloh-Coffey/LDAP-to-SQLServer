@@ -28,3 +28,6 @@ This script is designed to update the SQL Server database with the latest data f
         Remove deleted entries from the SQL Server database.
 
 Both scripts are designed to automate the process of extracting data from an LDAP server and maintaining an up-to-date copy of this data in a SQL Server database. They are useful in scenarios where LDAP data needs to be regularly synchronized with a SQL database, such as for user management or directory services.
+
+
+![Roadmap](https://showme.redstarplugin.com/d/d:XHLt4F6S)
