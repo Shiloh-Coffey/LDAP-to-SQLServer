@@ -1,61 +1,57 @@
 from ldap3 import Server, Connection, ALL
 import pyodbc
+import config  # Import the configuration
 
-# Define LDAP server information
-ldap_server = 'ldap://DESKTOP-PTCD1S6:389'      #Replace with LDAP link
-ldap_user = 'cn=Directory Manager'              #Replace with LDAP user
-ldap_password = 'password'                      #Replace with LDAP pass
+# Use variables from config
+ldap_server = config.LDAP_SERVER
+ldap_user = config.LDAP_USER
+ldap_password = config.LDAP_PASSWORD
+sql_driver = config.SQL_DRIVER
+sql_server = config.SQL_SERVER
+sql_database = config.SQL_DATABASE
+sql_trusted_connection = config.SQL_TRUSTED_CONNECTION
+new_table_name = config.NEW_TABLE_NAME
+table_name = config.TABLE_NAME
+old_table_name = config.OLD_TABLE_NAME
+master_ou_list = config.MASTER_OU_LIST
+OID_TO_SYNTAX = config.OID_TO_SYNTAX
 
-# Define SQL server information
-sql_driver = '{SQL Server}'                     
-sql_server = 'DESKTOP-PTCD1S6'                  #Replace with SQL Server link
-sql_database = 'ldapScrape'                     #Replace with SQL Database name
-sql_trusted_connection = 'True'
-
-# Name of the table to create
-new_table_name = "staging_ldap_data"
-table_name = "ldap_data"
-old_table_name = "dated_ldap_data"
-
-# OID translation to Syntax for things that are not strings in LDAP, add translations as needed
-OID_TO_SYNTAX = {
-    '1.3.6.1.4.1.1466.115.121.1.27': 'int',
-    '1.3.6.1.4.1.1466.115.121.1.53': 'datetime',
-}
-
-# Checks to see if table exists in SQL Sever
-def attributePull ():
-    # Define a broader search base
-    search_base = 'ou=People,dc=example,dc=com'
-    search_filter = '(objectClass=inetOrgPerson)'  # Adjust filter as per your needs
-
+def attributePull(ou_list):
     # Connect and bind to the server
     server = Server(ldap_server, get_info=ALL)
     conn = Connection(server, user=ldap_user, password=ldap_password, auto_bind=True)
 
-    #Search for entries
-    conn.search(search_base=search_base, search_filter=search_filter, attributes=['objectClass'], size_limit=1)
-
-    # Check if an entry was returned
-    if not conn.entries:
-        print("No entries found!")
-        exit(1)
-
-    # Process the first entry
-    entry = conn.entries[0]
-    print("Processing entry for attributes:", entry.entry_dn)
-
-    # Get all objectClasses for the entry
-    object_classes = conn.entries[0]['objectClass']
-
-    # Retrieve all attributes for each objectClass from the schema
     all_attributes = set()
-    for oc in object_classes:
-        if oc in server.schema.object_classes:
-            object_class_schema = server.schema.object_classes[oc]
-            all_attributes.update(object_class_schema.must_contain)
-            all_attributes.update(object_class_schema.may_contain)
-    return (all_attributes)
+
+    for ou in ou_list:
+        # Define a broader search base for each OU
+        search_base = f'ou={ou},{config.SEARCH_BASE}'
+        search_filter = config.SEARCH_FILTER
+
+        # Search for entries in each OU
+        conn.search(search_base=search_base, search_filter=search_filter, attributes=['objectClass'], size_limit=1)
+
+        # Check if an entry was returned
+        if not conn.entries:
+            print(f"No entries found in {ou}!")
+            continue
+
+        # Process the first entry
+        entry = conn.entries[0]
+        print(f"Processing entry for attributes in {ou}:", entry.entry_dn)
+
+        # Get all objectClasses for the entry
+        object_classes = entry['objectClass']
+
+        # Retrieve all attributes for each objectClass from the schema
+        for oc in object_classes:
+            if oc in server.schema.object_classes:
+                object_class_schema = server.schema.object_classes[oc]
+                all_attributes.update(object_class_schema.must_contain)
+                all_attributes.update(object_class_schema.may_contain)
+
+    return all_attributes
+
 
 def get_attribute_datatypes(server_url, bind_dn, password, attributes):
     # Connect to the server and bind
@@ -77,43 +73,45 @@ def get_attribute_datatypes(server_url, bind_dn, password, attributes):
     return attribute_datatypes_list
 
 def return_datatypes():
-    attributes_to_check = attributePull()
+    attributes_to_check = attributePull(master_ou_list)
     datatypes_list = get_attribute_datatypes(ldap_server, ldap_user, ldap_password, attributes_to_check)
     return datatypes_list
  
-def bind():
+def bind(ou_list):
     # Create an LDAP connection
     server = Server(ldap_server, get_info=ALL)
     conn = Connection(server, ldap_user, ldap_password, auto_bind=True)
 
-    # Define the LDAP query and the base DN (Distinguished Name) to search
-    search_base = 'ou=People,dc=example,dc=com'
-    # Define Object Class that is on the personnel records
-    search_filter = '(objectClass=person)'
-    # Define what attributes to pull
-    attributes = ['*']
-
-    # Perform the LDAP search
-    conn.search(search_base, search_filter, attributes=attributes)
-
     # Initialize an empty list to hold the results
     all_entries = []
 
-    # Iterate through the search results
-    for entry in conn.entries:
-        # Create a dictionary for the current entry's attributes
-        entry_dict = {}
-        # Iterate through each attribute in the entry
-        for attribute in entry.entry_attributes:
-            # Skip the 'dn' attribute
-            if attribute.lower() != 'dn':
-                # Assign the attribute and its value to the dictionary
-                entry_dict[attribute] = entry[attribute].value
-        # Add the current entry's dictionary to the main list
-        all_entries.append(entry_dict)
+    for ou in ou_list:
+        # Define the LDAP query and the base DN (Distinguished Name) to search
+        search_base = f'ou={ou},{config.SEARCH_BASE}'  # Adjust the base DN as per your LDAP structure
+        # Define Object Class that is on the personnel records
+        search_filter = config.OBJECT_CLASS
+        # Define what attributes to pull
+        attributes = ['*']
+
+        # Perform the LDAP search
+        conn.search(search_base, search_filter, attributes=attributes)
+
+        # Iterate through the search results
+        for entry in conn.entries:
+            # Create a dictionary for the current entry's attributes
+            entry_dict = {}
+            # Iterate through each attribute in the entry
+            for attribute in entry.entry_attributes:
+                # Skip the 'dn' attribute
+                if attribute.lower() != 'dn':
+                    # Assign the attribute and its value to the dictionary
+                    entry_dict[attribute] = entry[attribute].value
+            # Add the current entry's dictionary to the main list
+            all_entries.append(entry_dict)
 
     # Close the LDAP connection
     conn.unbind()
+
     sql_connection = pyodbc.connect(f'Driver={sql_driver};'
                                  f'Server={sql_server};'
                                  f'Database={sql_database};'
@@ -151,6 +149,7 @@ def bind():
     sql_connection.close()    
 
 def main():
+
     connSql = pyodbc.connect(f'Driver={sql_driver};'
                              f'Server={sql_server};'
                              f'Database={sql_database};'
@@ -167,7 +166,7 @@ def main():
     cursor = connSql.cursor()
     cursor.execute(sql_create)
     connSql.commit()
-    bind()
+    bind(master_ou_list)
     
     #rename tables
     sql_rename = f"""

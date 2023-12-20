@@ -1,20 +1,18 @@
 from ldap3 import Server, Connection, ALL
 import pyodbc
 import hashlib
+import config  # Import the configuration
 
-# Define LDAP server information
-ldap_server = 'ldap://DESKTOP-PTCD1S6:389'      # Replace with LDAP link
-ldap_user = 'cn=Directory Manager'              # Replace with LDAP user
-ldap_password = 'password'                      # Replace with LDAP pass
-
-# Define SQL server information
-sql_driver = '{SQL Server}'
-sql_server = 'DESKTOP-PTCD1S6'                  #Replace with SQL Server link
-sql_database = 'ldapScrape'                     #Replace with SQL Database name
-sql_trusted_connection = 'True'
-
-# Name of the table
-table_name = "ldap_data"
+# Use variables from config
+ldap_server = config.LDAP_SERVER
+ldap_user = config.LDAP_USER
+ldap_password = config.LDAP_PASSWORD
+sql_driver = config.SQL_DRIVER
+sql_server = config.SQL_SERVER
+sql_database = config.SQL_DATABASE
+sql_trusted_connection = config.SQL_TRUSTED_CONNECTION
+table_name = config.TABLE_NAME
+master_ou_list = config.MASTER_OU_LIST
 
 def hash_entry(entry):
     """ Create a SHA-256 hash of the entry's attributes. """
@@ -78,12 +76,9 @@ def insert_entry_in_sql(cursor, entry_dict, entry_hash):
 
     cursor.execute(sql_insert, parameters)
 
-def update_sql_from_ldap():
+def update_sql_from_ldap(ou_list):
     server = Server(ldap_server, get_info=ALL)
     conn = Connection(server, ldap_user, ldap_password, auto_bind=True)
-
-    search_filter = '(objectClass=person)'
-    conn.search('ou=People,dc=example,dc=com', search_filter, attributes=['*'])
 
     sql_connection = pyodbc.connect(f'Driver={sql_driver};'
                                     f'Server={sql_server};'
@@ -97,20 +92,27 @@ def update_sql_from_ldap():
     # Retrieve current hashes from SQL Server
     sql_hashes = get_sql_hashes(cursor)
 
-    for entry in conn.entries:
-        entry_dict = {attr: entry[attr].value for attr in entry.entry_attributes if attr.lower() != 'dn'}
-        entry_hash = hash_entry(entry)
+    ldap_uids = set()
 
-        if entry_dict['uid'] in sql_hashes:
-            if sql_hashes[entry_dict['uid']] != entry_hash:
-                # The entry has changed, update it in SQL Server
-                update_entry_in_sql(cursor, entry_dict, entry_hash)
-        else:
-            # The entry is new, insert it in SQL Server
-            insert_entry_in_sql(cursor, entry_dict, entry_hash)
+    for ou in ou_list:
+        search_base = f'ou={ou},{config.SEARCH_BASE}'  # Adjust the base DN as per your LDAP structure
+        search_filter = config.OBJECT_CLASS
+        conn.search(search_base, search_filter, attributes=['*'])
+
+        for entry in conn.entries:
+            entry_dict = {attr: entry[attr].value for attr in entry.entry_attributes if attr.lower() != 'dn'}
+            entry_hash = hash_entry(entry)
+            ldap_uids.add(entry_dict['uid'])
+
+            if entry_dict['uid'] in sql_hashes:
+                if sql_hashes[entry_dict['uid']] != entry_hash:
+                    # The entry has changed, update it in SQL Server
+                    update_entry_in_sql(cursor, entry_dict, entry_hash)
+            else:
+                # The entry is new, insert it in SQL Server
+                insert_entry_in_sql(cursor, entry_dict, entry_hash)
 
     # Remove deleted entries
-    ldap_uids = {entry['uid'].value for entry in conn.entries}
     sql_uids = set(sql_hashes.keys())
     deleted_uids = sql_uids - ldap_uids
     for uid in deleted_uids:
@@ -123,4 +125,5 @@ def update_sql_from_ldap():
     conn.unbind()
 
 if __name__ == "__main__":
-    update_sql_from_ldap()
+    update_sql_from_ldap(master_ou_list)
+    print('Server Refresh Finished')
